@@ -108,7 +108,7 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
     close(fd_socket);
     exit(EXIT_ERR_GENERICO);
   }
-  if (modoOrdenes = MODO_CONSOLA) {
+  if (modoOrdenes == MODO_CONSOLA) {
     send(fd_socket, mensajeDebug, sizeof(mensajeDebug), 0);
     // while(true) {
     //   break;
