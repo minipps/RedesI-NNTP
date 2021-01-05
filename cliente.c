@@ -13,32 +13,11 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 //Importes de utilidades, comment until makefile is done
-//#include "misc.h"
-// Constantes: Conexión
-#define PUERTO 40040
-#define TAM_BUFFER 10
-#define MAX_REINTENTOS 2
-#define TIEMPO_TIMEOUT 10
-// Constantes: Códigos error y salida
-#define EXIT_CORRECTO 0
-#define EXIT_ERR_GENERICO -1
-#define EXIT_ERR_USO -2
-#define EXIT_TIMEOUT -3
-// Enums
-typedef enum {
-  FALSE, TRUE
-} boolean;
-typedef enum {
-  MODO_TCP, MODO_UDP
-} protocolo;
-typedef enum {
-  MODO_CONSOLA, MODO_FICHERO
-} ordenes;
-// Funciones
+#include "misc.h"
 void clienteUDP(ordenes modoOrdenes, char * nombreServidor);
 void clienteTCP(ordenes modoOrdenes, char * nombreServidor);
-void strToUpper(char * str);
 void udpSigAlarmHandler(int signal);
+ssize_t recvMensajeEntero(int fd_socket, void * buf, size_t bufsize);
 // Variables globales
 int reintentos = 0;
 boolean timeout;
@@ -47,11 +26,6 @@ int main(int argc, char *argv[]) {
   int i;
   protocolo modoProtocolo;
   ordenes modoOrdenes;
-  // DEBUG PRINTFS
-  printf("argc: %d\n", argc);
-  for (i = 0; i < argc; i++) {
-      printf("argv[%d]: %s\n", i, argv[i]);
-  }
   // Validacion de argumentos
   if (argc == 3 || argc == 4) {
     strToUpper(argv[2]);
@@ -66,6 +40,12 @@ int main(int argc, char *argv[]) {
   // Parsing de argumentos
   modoOrdenes = (argc == 4)? MODO_FICHERO : MODO_CONSOLA;
   modoProtocolo = (!strcmp(argv[2], "TCP"))? MODO_TCP : MODO_UDP;
+  printf("-------------------------------------\n");
+  printf("CLIENTE NNTP\n");
+  printf("MODO DE ENTRADA: %s\n", (modoOrdenes == MODO_FICHERO) ? "ENTRADA DE FICHERO" : "ENTRADA POR CONSOLA");
+  printf("PROTOCOLO: %s\n", (modoProtocolo == MODO_TCP) ? "TCP" : "UDP");
+  printf("-------------------------------------\n\n");
+
   // Registramos señales para el modo UDP
   if (modoOrdenes == MODO_UDP) {
     //TODO: Bloquear todas las señales menos SIGALARM (UDP) y SIGTERM si hay problemas.
@@ -92,7 +72,11 @@ void clienteUDP(ordenes modoOrdenes, char * nombreServidor) {
 void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
   struct sockaddr_in servidor;
   int fd_socket;
+  boolean acabar = FALSE;
   char mensajeDebug[32] = "Conexión correcta.";
+  char buffer[512];
+  tipoMensaje * mensajeEnviado = malloc(sizeof(tipoMensaje));
+  tipoMensaje * mensajeRecibido = malloc(sizeof(tipoMensaje));
   fd_socket = socket(AF_INET, SOCK_STREAM, 0);
   if (fd_socket == -1) {
     fprintf(stderr, "clienteTCP: No se pudo crear el socket. nombreServidor: %s", nombreServidor);
@@ -103,13 +87,30 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
   servidor.sin_family = AF_INET;
   servidor.sin_port = htons(PUERTO);
   inet_pton(AF_INET, nombreServidor, &servidor.sin_addr);
-  if (connect(fd_socket, &servidor, sizeof(servidor)) == -1) {
+  if (connect(fd_socket, (const struct sockaddr *) &servidor, sizeof(servidor)) == -1) {
     fprintf(stderr, "clienteTCP: No se pudo conectar.");
     close(fd_socket);
     exit(EXIT_ERR_GENERICO);
   }
   if (modoOrdenes == MODO_CONSOLA) {
-    send(fd_socket, mensajeDebug, sizeof(mensajeDebug), 0);
+    while (acabar != TRUE) {
+
+      fflush(stdin);
+      fgets(buffer, TAM_BUFFER, stdin);
+      mensajeEnviado = constructorCodYString(SIN_CODIGO, buffer, strlen(buffer), FALSE);
+      send(fd_socket, mensajeEnviado, sizeof(tipoMensaje), 0);
+      //recvMensajeEntero(fd_socket, mensajeRecibido, sizeof(tipoMensaje));
+      recv(fd_socket, mensajeRecibido, sizeof(tipoMensaje), MSG_WAITALL);
+      imprimirMensaje(mensajeRecibido);
+      switch(mensajeRecibido->codRespuesta) {
+        case 205:
+          close(fd_socket);
+          acabar = TRUE;
+          break;
+        default:
+          break;
+      }
+    }
     // while(true) {
     //   break;
     // }
@@ -118,18 +119,6 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
   }
   close(fd_socket);
   exit(EXIT_CORRECTO);
-}
-
-void strToUpper(char * str) {
-  int i = 0;
-  if (str != NULL) {
-    while (str[i] != '\0') {
-      str[i] = toupper(str[i]);
-      i++;
-    }
-  } else {
-    fprintf(stderr, "strToUpper: String nulo");
-  }
 }
 
 
@@ -141,4 +130,19 @@ void udpSigAlarmHandler(int signal) {
     // Salimos
     exit(EXIT_TIMEOUT);
   }
+}
+
+ssize_t recvMensajeEntero(int fd_socket, void * buf, size_t bufsize) {
+  size_t aLeer = bufsize; // Para bucle para recibir.
+  ssize_t yaRecibido;
+  while (aLeer > 0) {
+    yaRecibido = recv(fd_socket, buf, aLeer, 0);
+    if (yaRecibido < 0) {
+      perror("recvMensajeEntero: ");
+      break;
+    }
+    aLeer -= yaRecibido; //Leemos menos
+    buf += yaRecibido; //Movemos el buffer
+  }
+  return yaRecibido;
 }
