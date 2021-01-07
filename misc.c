@@ -57,7 +57,7 @@ char * trim(char * str) {
   while(isspace((unsigned char)*str)) str++;
 
   if(*str == 0)  // All spaces?
-    return str;
+  return str;
 
   // Trim trailing space
   end = str + strlen(str) - 1;

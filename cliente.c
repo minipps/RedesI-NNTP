@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+#include <errno.h>
 //Other UNIX IMPORTS
 #include <signal.h>
 //Socket imports, comment until cygwin is installed
@@ -47,14 +48,14 @@ int main(int argc, char *argv[]) {
   printf("-------------------------------------\n\n");
 
   // Registramos señales para el modo UDP
-  if (modoOrdenes == MODO_UDP) {
+  if (modoProtocolo == MODO_UDP) {
     //TODO: Bloquear todas las señales menos SIGALARM (UDP) y SIGTERM si hay problemas.
     //TODO: Función de redefinir señales.
     struct sigaction sigAlarmUdp;
     sigAlarmUdp.sa_handler = udpSigAlarmHandler;
-    sigAlarmUdp.sa_flags = 0;
+    sigAlarmUdp.sa_flags = SA_RESTART;
     sigfillset(&(sigAlarmUdp.sa_mask));
-    if (sigaction(SIGALRM, &sigAlarmUdp, NULL)) {
+    if (sigaction(SIGALRM, &sigAlarmUdp, NULL) == -1) {
       fprintf(stderr, "MODO_UDP: Redefinición de señales.");
       exit(EXIT_ERR_GENERICO);
     }
@@ -66,7 +67,68 @@ int main(int argc, char *argv[]) {
 }
 
 void clienteUDP(ordenes modoOrdenes, char * nombreServidor) {
-  return;
+  //TODO: Redefinir la alarma para evitar bloqueos en recvfrom en esto y servidor.
+  //TODO: Comentar esto
+  struct sockaddr_in servidor, local;
+  boolean acabar = FALSE;
+  socklen_t tamSocket = sizeof(struct sockaddr_in);
+  ssize_t tam;
+  struct hostent * serverInfo;
+  int socketUDP = socket(AF_INET, SOCK_DGRAM, 0);
+  char buffer[512];
+  int tamMensaje;
+  tipoMensaje * mensajeEnviado = malloc(sizeof(tipoMensaje));
+  tipoMensaje * mensajeRecibido = malloc(sizeof(tipoMensaje));
+  local.sin_family = AF_INET;
+  local.sin_addr.s_addr = INADDR_ANY;
+  //TODO: Actualmente el puerto local del cliente no es 40040, no sé si es importante.
+  local.sin_port = 0;
+  servidor.sin_family = AF_INET;
+  servidor.sin_port = htons(PUERTO);
+  inet_pton(AF_INET, nombreServidor, &servidor.sin_addr);
+  if (socketUDP == -1) {
+    fprintf(stderr, "clienteUDP: No se pudo crear el socket. nombreServidor: %s", nombreServidor);
+    exit(EXIT_ERR_GENERICO);
+  }
+  if ((bind(socketUDP, (const struct sockaddr *)&local, tamSocket)) == -1) {
+    fprintf(stderr, "clienteUDP: bind()");
+    exit(EXIT_ERR_GENERICO);
+  }
+  // if ((getsockname(socketUDP, (struct sockaddr *)&local, &tamSocket)) == -1) {
+  //   fprintf(stderr, "clienteUDP: getsockname()");
+  //   exit(EXIT_ERR_GENERICO);
+  // }
+  if ((serverInfo = gethostbyname(nombreServidor)) == NULL) {
+    fprintf(stderr, "clienteUDP: gethostbyname()");
+    exit(EXIT_ERR_GENERICO);
+  }
+  memcpy((void *)&servidor.sin_addr, serverInfo->h_addr_list[0], serverInfo->h_length);
+  while (!acabar && reintentos < MAX_REINTENTOS) {
+    //TODO: Implementar alarm para proccear eintr si el servidor no responde en TIMEOUT segs
+    //MUY IMPORTANTE!!!
+    fflush(stdin);
+    fgets(buffer, TAM_BUFFER, stdin);
+    mensajeEnviado = constructorCodYString(SIN_CODIGO, buffer, strlen(buffer), FALSE);
+    // Entramos en el bucle una vez, y si se nos interrumpe por una señal (la alarma del timeout) volvemos a intentar mandar / enviar
+    alarm(TIEMPO_TIMEOUT);
+    sendto(socketUDP, mensajeEnviado, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, tamSocket);
+    //recvMensajeEntero(fd_socket, mensajeRecibido, sizeof(tipoMensaje));
+    // Limpiamos la alarma para evitar que llegue justo cuando empecemos el recvfrom
+    // alarm(0);
+    alarm(TIEMPO_TIMEOUT);
+    tamMensaje = recvfrom(socketUDP, mensajeRecibido, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, &tamSocket);
+    imprimirMensaje(mensajeRecibido);
+    // Limpiamos la alarma otra vez para evitar influir en el siguiente comando
+    // alarm(0);
+    switch(mensajeRecibido->codRespuesta) {
+      case 205:
+        reintentos = 0;
+        acabar = TRUE;
+        break;
+      default:
+        break;
+    }
+  }
 }
 
 void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
@@ -83,6 +145,7 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
     exit(EXIT_ERR_GENERICO);
   }
   // Ponemos a 0 todo el sockaddr_in
+  //TODO: Cambiar memset a calloc (y usamos punteros directamente)
   memset(&servidor, 0, sizeof(servidor));
   servidor.sin_family = AF_INET;
   servidor.sin_port = htons(PUERTO);
@@ -94,17 +157,15 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
   }
   if (modoOrdenes == MODO_CONSOLA) {
     while (acabar != TRUE) {
-
       fflush(stdin);
       fgets(buffer, TAM_BUFFER, stdin);
       mensajeEnviado = constructorCodYString(SIN_CODIGO, buffer, strlen(buffer), FALSE);
-      send(fd_socket, mensajeEnviado, sizeof(tipoMensaje), 0);
+      send(fd_socket, mensajeEnviado, sizeof(mensajeEnviado), 0);
       //recvMensajeEntero(fd_socket, mensajeRecibido, sizeof(tipoMensaje));
       recv(fd_socket, mensajeRecibido, sizeof(tipoMensaje), MSG_WAITALL);
       imprimirMensaje(mensajeRecibido);
       switch(mensajeRecibido->codRespuesta) {
         case 205:
-          close(fd_socket);
           acabar = TRUE;
           break;
         default:
@@ -124,25 +185,11 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor) {
 
 void udpSigAlarmHandler(int signal) {
   if (reintentos < MAX_REINTENTOS) {
-    timeout = TRUE;
-    reintentos += 1;
+    printf("Nah de locos la alarma");
+    reintentos++;
   } else {
-    // Salimos
+    // TODO: Cleanup
+    timeout = TRUE;
     exit(EXIT_TIMEOUT);
   }
-}
-
-ssize_t recvMensajeEntero(int fd_socket, void * buf, size_t bufsize) {
-  size_t aLeer = bufsize; // Para bucle para recibir.
-  ssize_t yaRecibido;
-  while (aLeer > 0) {
-    yaRecibido = recv(fd_socket, buf, aLeer, 0);
-    if (yaRecibido < 0) {
-      perror("recvMensajeEntero: ");
-      break;
-    }
-    aLeer -= yaRecibido; //Leemos menos
-    buf += yaRecibido; //Movemos el buffer
-  }
-  return yaRecibido;
 }

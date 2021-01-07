@@ -8,7 +8,7 @@
 #define PUERTO 40040
 #define TAM_BUFFER 512
 #define MAX_REINTENTOS 2
-#define TIEMPO_TIMEOUT 10
+#define TIEMPO_TIMEOUT 4
 // Constantes: Códigos error y salida
 #define EXIT_CORRECTO 0
 #define EXIT_ERR_GENERICO -1
