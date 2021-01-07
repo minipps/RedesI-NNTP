@@ -104,22 +104,19 @@ void clienteUDP(ordenes modoOrdenes, char * nombreServidor) {
   }
   memcpy((void *)&servidor.sin_addr, serverInfo->h_addr_list[0], serverInfo->h_length);
   while (!acabar && reintentos < MAX_REINTENTOS) {
-    //TODO: Implementar alarm para proccear eintr si el servidor no responde en TIMEOUT segs
-    //MUY IMPORTANTE!!!
     fflush(stdin);
     fgets(buffer, TAM_BUFFER, stdin);
     mensajeEnviado = constructorCodYString(SIN_CODIGO, buffer, strlen(buffer), FALSE);
-    // Entramos en el bucle una vez, y si se nos interrumpe por una señal (la alarma del timeout) volvemos a intentar mandar / enviar
+    //Si sendto() falla por la alarma, volverá a empezar por el flag SA_RESTART
     alarm(TIEMPO_TIMEOUT);
     sendto(socketUDP, mensajeEnviado, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, tamSocket);
-    //recvMensajeEntero(fd_socket, mensajeRecibido, sizeof(tipoMensaje));
     // Limpiamos la alarma para evitar que llegue justo cuando empecemos el recvfrom
-    // alarm(0);
+    alarm(0);
     alarm(TIEMPO_TIMEOUT);
     tamMensaje = recvfrom(socketUDP, mensajeRecibido, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, &tamSocket);
     imprimirMensaje(mensajeRecibido);
     // Limpiamos la alarma otra vez para evitar influir en el siguiente comando
-    // alarm(0);
+    alarm(0);
     switch(mensajeRecibido->codRespuesta) {
       case 205:
         reintentos = 0;

@@ -18,14 +18,6 @@ extern int errno;
 boolean acabar;
 char * rutaGrupoSeleccionado = NULL;
 tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada);
-void comandoList(char * arg, char * buf, int * cod);
-void comandoGroup(char * arg, char * buf, int * cod);
-void comandoNewNews(char * arg, char * buf, int * cod);
-void comandoNewGroups(char * arg, char * buf, int * cod);
-void comandoArticle(char * arg, char * buf, int * cod);
-void comandoHead(char * arg, char * buf, int * cod);
-void comandoBody(char * arg, char * buf, int * cod);
-void comandoPost(char * arg, char * buf, int * cod);
 int main(int argc, char * argv) {
   // socketListen = ls_tcp, socketTCP = s_tcp en las practicas.
   struct linger linger;
@@ -140,9 +132,12 @@ int main(int argc, char * argv) {
       }
     }
   }
+  shutdown(socketListenTCP, SHUT_RDWR);
   close(socketListenTCP);
+  shutdown(socketTCP, SHUT_RDWR);
   close(socketTCP);
-
+  shutdown(socketUDP, SHUT_RDWR);
+  close(socketUDP);
   return EXIT_CORRECTO;
 }
 
@@ -466,12 +461,3 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
   // }
   return msg;
 }
-
-void comandoList(char * arg, char * buf, int * cod);
-void comandoGroup(char * arg, char * buf, int * cod);
-void comandoNewNews(char * arg, char * buf, int * cod);
-void comandoNewGroups(char * arg, char * buf, int * cod);
-void comandoArticle(char * arg, char * buf, int * cod);
-void comandoHead(char * arg, char * buf, int * cod);
-void comandoBody(char * arg, char * buf, int * cod);
-void comandoPost(char * arg, char * buf, int * cod);
