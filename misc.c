@@ -1,4 +1,7 @@
 #include "misc.h"
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
 void strToUpper(char * str) {
   int i = 0;
   if (str != NULL) {
@@ -68,4 +71,11 @@ char * trim(char * str) {
 
   return str;
 
+}
+
+/* ----------------------------------------------------------------------------------------- */
+int operarSobreSemaforo(int semaforo,int indice,short op,short nsops,short flg) {
+/* ----------------------------------------------------------------------------------------- */
+		struct sembuf sop = {indice,op,flg};
+		return semop(semaforo,&sop,nsops);
 }

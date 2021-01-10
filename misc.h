@@ -9,15 +9,21 @@
 #define TAM_BUFFER 512
 #define MAX_REINTENTOS 2
 #define TIEMPO_TIMEOUT 4
+// Constantes: Semaforos y sus operaciones.
+#define SEMAFORO_LOG 0
+#define WAIT -1
+#define WAITALL 0
+#define SIGNAL 1
 // Constantes: Códigos error y salida
 #define EXIT_CORRECTO 0
 #define EXIT_ERR_GENERICO -1
 #define EXIT_ERR_USO -2
 #define EXIT_TIMEOUT -3
+#define EXIT_ERR_FICHORDENES -4
 #define SIN_CODIGO (uint16_t)0
 #define CODIGO_PREPARADO (uint16_t)200
 #define CODIGO_DESPEDIDA (uint16_t)205
-#define CODIGO_ARTICULOS_SELECCIONADOS (uint16_t)211
+#define CODIGO_GRUPO_SELECCIONADO (uint16_t)211
 #define CODIGO_GRUPOS_LISTADO (uint16_t)215
 #define CODIGO_ARTICULO_CABECERA_RECUPERADA (uint16_t)221
 #define CODIGO_ARTICULO_CUERPO_RECUPERADO (uint16_t)222
@@ -25,6 +31,8 @@
 #define CODIGO_ARTICULOS_DIAYHORA (uint16_t)230
 #define CODIGO_GRUPOS_DIAYHORA (uint16_t)231
 #define CODIGO_ARTICULO_CORRECTO (uint16_t)240
+//Este está sacado del PDF.
+#define CODIGO_POST_INICIO (uint16_t)340
 #define CODIGO_GRUPO_INEXISTENTE (uint16_t)411
 #define CODIGO_ARTICULO_INEXISTENTE (uint16_t)423
 #define CODIGO_ARTICULO_DESCONOCIDO (uint16_t)430
@@ -60,3 +68,4 @@ char * trim(char * str);
 tipoMensaje * constructorCodRespuesta(int codigo);
 tipoMensaje * constructorCodYString(int codigo, char * msg, int msgSize, boolean print);
 void imprimirMensaje(tipoMensaje * msg);
+int operarSobreSemaforo(int semaforo,int indice,short op,short nsops,short flg);

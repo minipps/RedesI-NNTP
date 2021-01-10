@@ -1,6 +1,8 @@
-#include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/errno.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/sem.h>
+#include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <signal.h>
@@ -15,9 +17,13 @@
 #define IMPRIMIR_MENSAJES TRUE
 #define BACKLOG 5
 extern int errno;
+int semaforos;
 boolean acabar;
+boolean acabarPost = FALSE;
 char * rutaGrupoSeleccionado = NULL;
 tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada);
+tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada);
+void logMessage(char * string);
 int main(int argc, char * argv) {
   // socketListen = ls_tcp, socketTCP = s_tcp en las practicas.
   struct linger linger;
@@ -27,12 +33,30 @@ int main(int argc, char * argv) {
   int tamMensaje;
   tipoMensaje * mensajeRecibido = malloc(sizeof(tipoMensaje));
   tipoMensaje * mensajeRespuesta;
-  char host[96];
+  char host[96], mensajeLog[128];
   struct sockaddr_in servidor, cliente, clienteUDP;
+  struct sigaction sigCld;
   socklen_t tamSocket = sizeof(struct sockaddr_in);
+  //Union de semaforo para que funcione en nogal.
+  union semun {
+					int val;
+					struct semid_ds *buf;
+					unsigned short  *array;
+	  } unionSemaforo;
+  //Damos valores a los sockaddr
   servidor.sin_family = AF_INET;
   servidor.sin_addr.s_addr = INADDR_ANY;
   servidor.sin_port = htons(PUERTO);
+  //Instanciamos las señales que cambiamos
+  sigCld.sa_handler = SIG_IGN;
+  //sigCld.sa_flags = SA_NOCLDWAIT;
+  sigemptyset(&sigCld.sa_mask);
+  sigaction(SIGCLD, &sigCld, NULL);
+  // Declaramos los semaforos
+  unionSemaforo.val = 1;
+  if (semctl(semaforos, SEMAFORO_LOG, SETVAL, unionSemaforo) == -1) {
+    fprintf(stderr, "SEMAFORO_LOG: Declaración");
+  }
   // Creamos los sockets
   socketListenTCP = socket(AF_INET, SOCK_STREAM, 0);
   socketUDP = socket(AF_INET, SOCK_DGRAM, 0);
@@ -58,11 +82,10 @@ int main(int argc, char * argv) {
     exit(EXIT_ERR_GENERICO);
   }
   printf("-------------------------------------\n");
-  printf("SERVIDOR NNTP\n");
+  printf("DAEMON SERVIDOR NNTP\n");
   printf("-------------------------------------\n\n");
   //Recibimos el mensaje
-  //TODO: Bucle que acepte conexiones en distintos protocolos y haga hijos
-  //TODO: Poner al servidor como daemon
+  //setpgrp();
   while (acabar != TRUE) {
     fd_set socketSet;
     pid_t serverPID;
@@ -71,65 +94,101 @@ int main(int argc, char * argv) {
     FD_SET(socketListenTCP, &socketSet);
     FD_SET(socketUDP, &socketSet);
     nElegido = select(socketMayor+1, &socketSet, (fd_set *)0, (fd_set *)0, NULL);
-    if (FD_ISSET(socketListenTCP, &socketSet)) {
-      // Accept al socket TCP
-      // TODO: Implementación de esto con threads / procesos.
-      if ((socketTCP = accept(socketListenTCP, (struct sockaddr *)&cliente, &tamSocket)) == -1) {
-        fprintf(stderr, "socketTCP: Error de accept.");
+    serverPID = fork();
+    switch(serverPID) {
+    case -1:
+        fprintf(stderr, "fork: Error al crear hijo.");
         close(socketUDP);
         close(socketListenTCP);
         close(socketTCP);
         exit(EXIT_ERR_GENERICO);
-      }
-      getnameinfo((struct sockaddr *)&cliente, tamSocket, host, 0, NULL, 0, 0);
-      printf("Conectado a %s por TCP.\n", host);
-      while (acabar != TRUE) {
-        // serverPID = fork();
-        // switch(serverPID) {
-        //   case -1:
-        //     fprintf(stderr, "fork: Error al crear hijo.");
-        //     close(socketUDP);
-        //     close(socketListenTCP);
-        //     close(socketTCP);
-        //     exit(EXIT_ERR_GENERICO);
-        //     case 0:
-        // close(socketListenTCP);
-        tamMensaje = recv(socketTCP, mensajeRecibido, sizeof(tipoMensaje), 0);
-        if (tamMensaje <= 0) {
-          fprintf(stderr, "socketTCP: Error de recv.");
+        break;
+    case 0:
+        break;
+    default:
+      if (FD_ISSET(socketListenTCP, &socketSet)) {
+        // Accept al socket TCP
+        if ((socketTCP = accept(socketListenTCP, (struct sockaddr *)&cliente, &tamSocket)) == -1) {
+          fprintf(stderr, "socketTCP: Error de accept.");
+          close(socketUDP);
           close(socketListenTCP);
           close(socketTCP);
           exit(EXIT_ERR_GENERICO);
         }
-        mensajeRespuesta = procesarComando(mensajeRecibido);
-        if (send(socketTCP, mensajeRespuesta, sizeof(tipoMensaje), 0) < 0) {
-          perror("servidorTCP: send: ");
+        getnameinfo((struct sockaddr *)&cliente, tamSocket, host, tamSocket, NULL, 0, 0);
+        printf("Conectado a %s por TCP (puerto %d).\n", host, htons(cliente.sin_port));
+        while (acabar != TRUE) {
+          tamMensaje = recv(socketTCP, mensajeRecibido, sizeof(tipoMensaje), 0);
+          if (tamMensaje <= 0) {
+            fprintf(stderr, "socketTCP: Error de recv.");
+            close(socketListenTCP);
+            close(socketTCP);
+            exit(EXIT_ERR_GENERICO);
+          }
+          mensajeRespuesta = procesarComando(mensajeRecibido);
+          if (send(socketTCP, mensajeRespuesta, sizeof(tipoMensaje), 0) < 0) {
+            perror("servidorTCP: send: ");
+          }
+          switch (mensajeRespuesta->codRespuesta) {
+            //TODO: Esto. escribir procesarPost
+            case CODIGO_POST_INICIO:
+              tamMensaje = recv(socketTCP, mensajeRecibido, sizeof(tipoMensaje), 0);
+              if (tamMensaje <= 0) {
+                fprintf(stderr, "socketTCP: Error de recv.");
+                close(socketListenTCP);
+                close(socketTCP);
+                exit(EXIT_ERR_GENERICO);
+              }
+              mensajeRespuesta = procesarPost(mensajeRecibido);
+              if (send(socketTCP, mensajeRespuesta, sizeof(tipoMensaje), 0) < 0) {
+                perror("servidorTCP: send: ");
+              }
+              break;
+            case CODIGO_DESPEDIDA:
+              break;
+            default:
+              break;
+          }
+          free(mensajeRespuesta);
+          //exit(EXIT_CORRECTO);
+          //     default:
+          //       break;
+          //
+          // }
         }
-        free(mensajeRespuesta);
-        //exit(EXIT_CORRECTO);
-        //     default:
-        //       break;
-        //
-        // }
       }
-    }
-    if (FD_ISSET(socketUDP, &socketSet)) {
-      getnameinfo((struct sockaddr *)&servidor, tamSocket, host, 0, NULL, 0, 0);
-      printf("Conectado a %s por TCP.\n", host);
-      while (acabar != TRUE) {
-        tamMensaje = recvfrom(socketUDP, mensajeRecibido, TAM_BUFFER, 0, (struct sockaddr *)&servidor, &tamSocket);
-        if (tamMensaje <= 0){
-          fprintf(stderr, "socketTCP: Error de recv.");
-          close(socketListenTCP);
-          close(socketTCP);
-          exit(EXIT_ERR_GENERICO);
+      if (FD_ISSET(socketUDP, &socketSet)) {
+        getnameinfo((struct sockaddr *)&servidor, tamSocket, host, tamSocket, NULL, 0, 0);
+        printf("Conectado a %s por UDP (puerto %d).\n", host, htons(servidor.sin_port));
+        sprintf(mensajeLog, "Conectado a %s (IP: %s) por UDP (puerto %d)", host, inet_ntoa(servidor.sin_addr), htons(servidor.sin_port));
+        logMessage(mensajeLog);
+        while (acabar != TRUE) {
+          tamMensaje = recvfrom(socketUDP, mensajeRecibido, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, &tamSocket);
+          if (tamMensaje <= 0){
+            fprintf(stderr, "socketTCP: Error de recv.");
+            close(socketListenTCP);
+            close(socketTCP);
+            exit(EXIT_ERR_GENERICO);
+          }
+          mensajeRespuesta = procesarComando(mensajeRecibido);
+          if (sendto(socketUDP, mensajeRespuesta, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, tamSocket) < 0) {
+            perror("servidorUDP: sendto");
+          }
+          switch (mensajeRespuesta->codRespuesta) {
+            case CODIGO_POST_INICIO:
+              procesarPost(mensajeRecibido);
+              break;
+            case CODIGO_DESPEDIDA:
+              break;
+            default:
+              break;
+          }
+          free(mensajeRespuesta);
         }
-        mensajeRespuesta = procesarComando(mensajeRecibido);
-        if (sendto(socketUDP, mensajeRespuesta, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, tamSocket) < 0) {
-          perror("servidorUDP: sendto");
-        }
-        free(mensajeRespuesta);
+        shutdown(socketUDP, SHUT_RDWR);
+        close(socketUDP);
       }
+      exit(EXIT_CORRECTO);
     }
   }
   shutdown(socketListenTCP, SHUT_RDWR);
@@ -152,16 +211,19 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
   uint16_t codMensaje = SIN_CODIGO;
   char bufferMensaje[TAM_BUFFER];
   char bufferRespuesta[TAM_BUFFER] = {0}; //Iniciamos todo el buffer a \0
-  char argumentos[256] = {0}, bufferLinea[256], grupo[32] = {0}, fecha[32] = {0}, rutaCarpeta[64] = {0}, rutaArchivo[80] = {0};
+  char argumentos[256] = {0}, bufferLinea[256], grupo[32] = {0}, fecha[32] = {0}, mensajeLog[128], rutaCarpeta[64] = {0}, rutaArchivo[80] = {0};
   char * comando, *saveptr, *saveptr2, *tmp;
   DIR * carpeta;
   FILE * archivoALeer;
-  struct dirent * entry, * ultimaEntry, * firstEntry;
+  struct dirent * entry, * ultimaEntry, * firstEntry = NULL;
+  int primerArticulo, ultimoArticulo;
   size_t tamArchivo;
   memcpy(bufferMensaje, mensajeEntrada->datos, TAM_BUFFER);
+  sprintf(mensajeLog, "COMANDO RECIBIDO: %s", bufferMensaje);
+  logMessage(mensajeLog);
   comando = strtok_r(bufferMensaje, " ", &saveptr);
+  if (comando == NULL || strlen(comando) == 0) comando = bufferMensaje; // Comandos sin argumentos
   strToUpper(comando);
-  if (strlen(comando) == 0) comando = bufferMensaje;
   comando = trim(comando);
   //Me gustaría hacerlo con un switch pero es imposible en C.
   if (strcmp(comando, "LIST") == 0) {
@@ -235,12 +297,16 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
     //
     // COMIENZO DE NEWNEWS
     //
+    int contadorEspacio = 0;
+    while ((comando = strtok_r(NULL, ".", &saveptr)) != NULL) {
+      sprintf(grupo, "/%s", trim(comando));
+      contador++;
+    }
+
     while ((comando = strtok_r(NULL, " ", &saveptr)) != NULL) {
-      if (contador < 2) sprintf(grupo, "/%s", trim(comando));
-      else if (contador < 4){
-        sprintf(argumentos+strlen(argumentos), "%s", trim(comando));
-        if (contador == 2) sprintf(argumentos+strlen(argumentos), " ");
-      }
+      sprintf(argumentos, "%s", trim(comando));
+      if (contadorEspacio == 0) sprintf(argumentos + strlen(argumentos), " ");
+      contadorEspacio++;
       contador++;
     }
     sprintf(rutaArchivo, "%s%s", RUTA_ARCHIVO_GRUPOS, grupo);
@@ -296,73 +362,69 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
     //
     // COMIENZO DE GROUP
     //
-    sprintf(argumentos, "%s", RUTA_ARTICULOS);
-    while (comando = strtok_r(NULL, ".", &saveptr)) {
-      //se puede simplificar y añadir la logica al while pero bueno
-      if (comando == NULL) {
-        if (contador == 0) {
-          sintaxisIncorrecta = TRUE;
-        }
-        break;
-      }
+    sprintf(rutaCarpeta, "%s", RUTA_ARTICULOS);
+    //Parseamos
+    while ((comando = strtok_r(NULL, ".", &saveptr)) != NULL) {
+      trim(comando);
+      sprintf(rutaCarpeta + strlen(rutaCarpeta), "/%s", comando);
+      sprintf(argumentos + strlen(argumentos), "%s.", comando);
       contador++;
-      sprintf(argumentos+strlen(argumentos), "/%s", comando);
     }
-    if (!sintaxisIncorrecta) {
-      trim(argumentos);
-      carpeta = opendir(argumentos);
-      if (carpeta == NULL) {
-        sprintf(bufferRespuesta, "Grupo %s no encontrado.\n", argumentos);
-        codMensaje = CODIGO_GRUPO_INEXISTENTE;
-      } else {
-        rutaGrupoSeleccionado = malloc(strlen(argumentos) + 1);
-        strcpy(rutaGrupoSeleccionado, argumentos);
-        contador = 0;
-        while ((entry = readdir(carpeta)) != NULL) {
-          //TODO: Esto no consigue el primer mensaje, quizas cogerlo de grupos? :/
-          //TODO: ESTO NO CHEQUEA SI LOS ARCHIVOS SON DIRECTORIOS, por tanto cosas como "group local" son validas a pesar de que en vez de articulos habrá carpetas dentro.
-          if (contador == 3) firstEntry = entry; //3 porque readdir siempre leera primero la carpeta . y ..
-          contador++;
-          ultimaEntry = entry;
+    if (contador == 0) {
+      codMensaje = CODIGO_COMANDO_SINTAXIS;
+      sprintf(bufferRespuesta, "GROUP: No se encontraron suficientes tokens. Recordaste introducir el nombre de grupo?");
+    } else {
+      //Borramos el último punto de argumentos.
+      argumentos[strlen(argumentos)-1] = '\0';
+      archivoALeer = fopen(RUTA_ARCHIVO_GRUPOS, "r");
+      while (!feof(archivoALeer)) {
+        fgets(bufferLinea, sizeof(bufferLinea), archivoALeer);
+        //Comparamos el nombre del grupo
+        tmp = strtok_r(bufferLinea, " ", &saveptr2);
+        trim(tmp);
+        if (!(strcmp(tmp, argumentos))) { //El grupo se encuentra en el archivo de grupos (existe).
+          if (rutaGrupoSeleccionado == NULL) rutaGrupoSeleccionado = malloc(sizeof(char) * 128);
+          sprintf(rutaGrupoSeleccionado, "%s", rutaCarpeta);
+          // Los siguientes dos tokens son el ultimo articulo y el primero
+          tmp = strtok_r(NULL, " ", &saveptr2);
+          ultimoArticulo = atoi(tmp);
+          tmp = strtok_r(NULL, " ", &saveptr2);
+          primerArticulo = atoi(tmp);
         }
-        sprintf(bufferRespuesta, "%d %s %s", contador, firstEntry->d_name, ultimaEntry->d_name);
-        codMensaje = CODIGO_ARTICULOS_SELECCIONADOS;
       }
-      closedir(carpeta);
-    } else {
-      sprintf(bufferRespuesta, "Error de sintaxis: no se encontraron suficientes tokens.");
-      codMensaje = CODIGO_COMANDO_SINTAXIS;
+      sprintf(bufferRespuesta, "%d %d %d %s", ultimoArticulo-primerArticulo, primerArticulo, ultimoArticulo, argumentos);
+      codMensaje = CODIGO_GRUPO_SELECCIONADO;
     }
-    //
-    // FIN DE GROUP
-    //
-  } else if (strcmp(comando, "ARTICLE") == 0) {
-    //
-    // COMIENZO DE ARTICLE
-    //
-    if ((comando = strtok_r(NULL, "", &saveptr)) == NULL) {
-      sprintf(bufferRespuesta, "Error de sintaxis: no se encontraron suficientes tokens.");
-      codMensaje = CODIGO_COMANDO_SINTAXIS;
-    } else {
-      if ((rutaGrupoSeleccionado == NULL)) {
-        sprintf(bufferRespuesta, "Error: no se encontró el artículo. ¿Recordaste elegir grupo antes de pedir un archivo?");
-        codMensaje = CODIGO_ARTICULO_DESCONOCIDO;
+      //
+      // FIN DE GROUP
+      //
+    } else if (strcmp(comando, "ARTICLE") == 0) {
+      //
+      // COMIENZO DE ARTICLE
+      //
+      if ((comando = strtok_r(NULL, "", &saveptr)) == NULL) {
+        sprintf(bufferRespuesta, "Error de sintaxis: no se encontraron suficientes tokens.");
+        codMensaje = CODIGO_COMANDO_SINTAXIS;
       } else {
-        sprintf(argumentos, "%s/%s", rutaGrupoSeleccionado, trim(comando));
-        archivoALeer = fopen(argumentos, "r");
-        if (archivoALeer != NULL) {
-          fseek(archivoALeer, 0, SEEK_END);
-          tamArchivo = ftell(archivoALeer);
-          rewind(archivoALeer);
-          fread(bufferRespuesta, 1, tamArchivo, archivoALeer);
-          codMensaje = CODIGO_ARTICULO_RECUPERADO;
-          fclose(archivoALeer);
+        if ((rutaGrupoSeleccionado == NULL)) {
+          sprintf(bufferRespuesta, "Error: no se encontró el artículo. ¿Recordaste elegir grupo antes de pedir un archivo?");
+          codMensaje = CODIGO_ARTICULO_DESCONOCIDO;
         } else {
-          sprintf(bufferRespuesta, "%s: Archivo %s no encontrado.", comando, RUTA_ARCHIVO_GRUPOS);
-          codMensaje = CODIGO_ARTICULO_INEXISTENTE;
+          sprintf(argumentos, "%s/%s", rutaGrupoSeleccionado, trim(comando));
+          archivoALeer = fopen(argumentos, "r");
+          if (archivoALeer != NULL) {
+            fseek(archivoALeer, 0, SEEK_END);
+            tamArchivo = ftell(archivoALeer);
+            rewind(archivoALeer);
+            fread(bufferRespuesta, 1, tamArchivo, archivoALeer);
+            codMensaje = CODIGO_ARTICULO_RECUPERADO;
+            fclose(archivoALeer);
+          } else {
+            sprintf(bufferRespuesta, "%s: Archivo %s no encontrado.", comando, RUTA_ARCHIVO_GRUPOS);
+            codMensaje = CODIGO_ARTICULO_INEXISTENTE;
+          }
         }
       }
-    }
     //
     // FIN DE ARTICLE
     //
@@ -382,7 +444,6 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
         archivoALeer = fopen(argumentos, "r");
         if (archivoALeer != NULL) {
           for (contador = 0; contador < 5 && !feof(archivoALeer); contador++) {
-            //TODO: Error checking aqui
             fgets(bufferLinea, sizeof(bufferLinea), archivoALeer);
             sprintf(bufferRespuesta+strlen(bufferRespuesta), "%s", bufferLinea);
           }
@@ -415,7 +476,6 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
           for (contador = 0; !feof(archivoALeer); contador++) {
             fgets(bufferLinea, sizeof(bufferLinea), archivoALeer);
             if (contador >= 5) {
-              //TODO: Error checking aqui
               sprintf(bufferRespuesta+strlen(bufferRespuesta), "%s", bufferLinea);
             }
           }
@@ -435,8 +495,8 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
     // COMIENZO DE POST
     //
     // TODO: POST
-    sprintf(bufferRespuesta, "%s: NO IMPLEMENTADO", comando);
-    codMensaje = CODIGO_COMANDO_DESCONOCIDO;
+    codMensaje = CODIGO_POST_INICIO;
+    sprintf(bufferRespuesta, "Subiendo un artículo; finalize con una línea que solo contenga un punto");
     //
     // FIN DE POST
     //
@@ -452,12 +512,55 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
     //
   } else {
     // COMANDO DESCONOCIDO
-    sprintf(bufferRespuesta, "Comando %s desconocido.", comando);
+    sprintf(bufferRespuesta, "Comando \"%s\" desconocido.", comando);
     codMensaje = CODIGO_COMANDO_DESCONOCIDO;
   }
+  sprintf(mensajeLog, "RESPUESTA: %d - %s", codMensaje, bufferRespuesta);
+  logMessage(mensajeLog);
   msg = constructorCodYString(codMensaje, bufferRespuesta, strlen(bufferRespuesta), IMPRIMIR_MENSAJES);
-  // if (send(socket, msg, sizeof(msg), 0) < 0) {
-  //   perror("servidorTCP: send: ");
-  // }
+  return msg;
+}
+
+void logMessage(char * string) {
+  FILE * archivoLog;
+  time_t t = time(NULL);
+  struct tm * fechaHora = localtime(&t);
+  char * strFechaHora = asctime(fechaHora);
+  operarSobreSemaforo(semaforos, SEMAFORO_LOG, WAIT, 1, 0);
+  archivoLog = fopen("nntp.log", "a");
+  if (archivoLog == NULL) return;
+  fprintf(archivoLog, "%.*s: %s" , strlen(strFechaHora)-1, strFechaHora, string);
+  fclose(archivoLog);
+  operarSobreSemaforo(semaforos, SEMAFORO_LOG, SIGNAL, 1, 0);
+}
+
+tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada) {
+  tipoMensaje * msg;
+  int i, j;
+  char bufferRespuesta[32] = "NO IMPLEMENTADO.", copiaLinea[512] = {0}, copiaMensaje[512], * linea, * saveptr, * saveptr2;
+  char rutaGrupo[96], subject[96], contenido[512];
+  strcpy(copiaMensaje, mensajeEntrada->datos);
+  sprintf(rutaGrupo, "%s/", RUTA_ARTICULOS);
+  for (i = 0, linea = strtok_r(copiaMensaje, "\n", &saveptr); linea != NULL; linea = strtok_r(NULL, "\n", &saveptr), i++) {
+    printf("Linea %d: %s\n", i, linea);
+    strcpy(copiaLinea, linea); //Copiamos para hacer más parsing de una sola linea.
+    if (i == 0) { // Línea del grupo.
+      for (j = 0; j < strlen(copiaLinea); j++) {
+        //Reemplazamos los . por / para crear una ruta. Se puede hacer con strtok, pero bueno...
+        sprintf(rutaGrupo+strlen(rutaGrupo), "%c", (copiaLinea[j] == '.')? '/' : copiaLinea[j]);
+      }
+      printf("RutaGrupo: %s\n", rutaGrupo);
+    } else if (i == 1) {
+      sprintf(subject, "%s", copiaLinea);
+      printf("Subject: %s\n", subject);
+    } else {
+      sprintf(contenido+strlen(contenido), "%s\n", copiaLinea);
+      printf("Contenido %d: %s\n", i-2, contenido);
+    }
+  }
+  //Todo: hacer lo de \r\n
+  //TODO: Sintaxis incorrecta y etc
+  //TODO: Abrir el archivo y hacer fprintf
+  msg = constructorCodYString(CODIGO_COMANDO_DESCONOCIDO, bufferRespuesta, strlen(bufferRespuesta), FALSE);
   return msg;
 }
