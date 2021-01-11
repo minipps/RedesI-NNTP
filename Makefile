@@ -6,7 +6,7 @@ default: all
 
 run:
 	cmd /c start servidor.exe
-	cmd /c start cliente.exe localhost TCP 
+	cmd /c start cliente.exe localhost TCP
 
 cliente: cliente.c misc.o misc.h
 	gcc cliente.c misc.o misc.h -o cliente

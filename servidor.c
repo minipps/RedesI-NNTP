@@ -130,7 +130,6 @@ int main(int argc, char * argv) {
             perror("servidorTCP: send: ");
           }
           switch (mensajeRespuesta->codRespuesta) {
-            //TODO: Esto. escribir procesarPost
             case CODIGO_POST_INICIO:
               tamMensaje = recv(socketTCP, mensajeRecibido, sizeof(tipoMensaje), 0);
               if (tamMensaje <= 0) {
@@ -176,7 +175,18 @@ int main(int argc, char * argv) {
           }
           switch (mensajeRespuesta->codRespuesta) {
             case CODIGO_POST_INICIO:
-              procesarPost(mensajeRecibido);
+              tamMensaje = recvfrom(socketUDP, mensajeRecibido, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, &tamSocket);
+              if (tamMensaje <= 0){
+                fprintf(stderr, "socketTCP: Error de recv.");
+                close(socketListenTCP);
+                close(socketTCP);
+                exit(EXIT_ERR_GENERICO);
+              }
+              mensajeRespuesta = procesarPost(mensajeRecibido);
+
+              if (sendto(socketUDP, mensajeRespuesta, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, tamSocket) < 0) {
+                perror("servidorUDP: sendto");
+              }
               break;
             case CODIGO_DESPEDIDA:
               break;
@@ -536,31 +546,64 @@ void logMessage(char * string) {
 
 tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada) {
   tipoMensaje * msg;
-  int i, j;
-  char bufferRespuesta[32] = "NO IMPLEMENTADO.", copiaLinea[512] = {0}, copiaMensaje[512], * linea, * saveptr, * saveptr2;
-  char rutaGrupo[96], subject[96], contenido[512];
+  int i, j, numUltimoArticulo, codRespuesta;
+  char bufferRespuesta[512], copiaLinea[512] = {0}, copiaMensaje[512], * linea, * saveptr, * saveptr2;
+  char rutaArchivo[96], subject[96], contenido[512] = {0}, textoGrupo[48], fechaFormatoNNTP[96], fechaLegible[96], hostname[96];
+  FILE * archivoArticulo, * archivoGrupo;
+  time_t t = time(NULL);
+  struct tm fechaHora = *localtime(&t);
+  strftime(fechaFormatoNNTP, 96, "%C%m%d %H%M%S", &fechaHora);
+  strftime(fechaLegible, 96, "%a, %e %b %Y %T %z %Z", &fechaHora);
+  gethostname(hostname, 96);
   strcpy(copiaMensaje, mensajeEntrada->datos);
-  sprintf(rutaGrupo, "%s/", RUTA_ARTICULOS);
+  sprintf(rutaArchivo, "%s/", RUTA_ARTICULOS);
   for (i = 0, linea = strtok_r(copiaMensaje, "\n", &saveptr); linea != NULL; linea = strtok_r(NULL, "\n", &saveptr), i++) {
-    printf("Linea %d: %s\n", i, linea);
-    strcpy(copiaLinea, linea); //Copiamos para hacer más parsing de una sola linea.
+    sprintf(copiaLinea, "%s", linea); //Copiamos para hacer más parsing de una sola linea.
     if (i == 0) { // Línea del grupo.
+      sprintf(textoGrupo, "%s", copiaLinea);
+      trim(textoGrupo);
       for (j = 0; j < strlen(copiaLinea); j++) {
         //Reemplazamos los . por / para crear una ruta. Se puede hacer con strtok, pero bueno...
-        sprintf(rutaGrupo+strlen(rutaGrupo), "%c", (copiaLinea[j] == '.')? '/' : copiaLinea[j]);
+        sprintf(rutaArchivo+strlen(rutaArchivo), "%c", (copiaLinea[j] == '.')? '/' : copiaLinea[j]);
       }
-      printf("RutaGrupo: %s\n", rutaGrupo);
     } else if (i == 1) {
       sprintf(subject, "%s", copiaLinea);
-      printf("Subject: %s\n", subject);
     } else {
       sprintf(contenido+strlen(contenido), "%s\n", copiaLinea);
-      printf("Contenido %d: %s\n", i-2, contenido);
+    }
+    if (!(strcmp(trim(linea), "."))) break;
+  }
+  fflush(stdout);
+  //A partir de aqui usamos la variable "Linea" para guardar los tokens.
+  if ((archivoGrupo = fopen(RUTA_ARCHIVO_GRUPOS, "r+")) == NULL) {
+    codRespuesta = CODIGO_ERROR_GENERICO;
+    sprintf(bufferRespuesta, "No se pudo abrir el archivo de grupos.");
+  } else {
+    while (!feof(archivoGrupo)) { //Acabamos si acaba el archivo o hemos encontrado elg rupo
+      fgets(copiaLinea, sizeof(copiaLinea), archivoGrupo);
+      linea = strtok_r(copiaLinea, " ", &saveptr2); //El primer token es el del grupo.
+      if (!(strcmp(trim(linea), textoGrupo))) break;
+    }
+    if (feof(archivoGrupo)) {
+      codRespuesta = CODIGO_GRUPO_INEXISTENTE;
+      sprintf(bufferRespuesta, "El grupo %s no existe.", textoGrupo);
+    } else {
+      linea = strtok_r(NULL, " ", &saveptr2); //Este token es el del último artículo y es el que queremos.
+      numUltimoArticulo = atoi(linea);
+      sprintf(rutaArchivo+strlen(rutaArchivo), "/%d", numUltimoArticulo+1);
+      archivoArticulo = fopen(rutaArchivo, "w+");
+      if (archivoArticulo == NULL) {
+        codRespuesta = CODIGO_ERROR_SUBIDA;
+        sprintf(bufferRespuesta, "No se pudo crear el fichero del nuevo artículo.");
+      } else {
+        fprintf(archivoArticulo, "Newsgroup: %s\nSubject: %s\nDate: %s %s\nMessage-ID: <%d@%s>\n\n%s", textoGrupo, subject, fechaFormatoNNTP, fechaLegible, numUltimoArticulo+1, hostname, contenido);
+        codRespuesta = CODIGO_POST_CORRECTO;
+        sprintf(bufferRespuesta, "Post subido correctamente");
+      }
     }
   }
-  //Todo: hacer lo de \r\n
-  //TODO: Sintaxis incorrecta y etc
-  //TODO: Abrir el archivo y hacer fprintf
-  msg = constructorCodYString(CODIGO_COMANDO_DESCONOCIDO, bufferRespuesta, strlen(bufferRespuesta), FALSE);
+  fclose(archivoGrupo);
+  fclose(archivoArticulo);
+  msg = constructorCodYString(codRespuesta, bufferRespuesta, strlen(bufferRespuesta), FALSE);
   return msg;
 }

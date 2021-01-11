@@ -30,7 +30,7 @@
 #define CODIGO_ARTICULO_RECUPERADO (uint16_t)223
 #define CODIGO_ARTICULOS_DIAYHORA (uint16_t)230
 #define CODIGO_GRUPOS_DIAYHORA (uint16_t)231
-#define CODIGO_ARTICULO_CORRECTO (uint16_t)240
+#define CODIGO_POST_CORRECTO (uint16_t)240
 //Este está sacado del PDF.
 #define CODIGO_POST_INICIO (uint16_t)340
 #define CODIGO_GRUPO_INEXISTENTE (uint16_t)411
@@ -39,6 +39,7 @@
 #define CODIGO_ERROR_SUBIDA (uint16_t)441
 #define CODIGO_COMANDO_DESCONOCIDO (uint16_t)500
 #define CODIGO_COMANDO_SINTAXIS (uint16_t)501
+#define CODIGO_ERROR_GENERICO (uint)502
 //Constantes: Rutas
 #define RUTA_BASE "nntp/noticias"
 #define RUTA_ARTICULOS "nntp/noticias/articulos"
