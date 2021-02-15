@@ -16,6 +16,12 @@
 #include "misc.h"
 #define IMPRIMIR_MENSAJES TRUE
 #define BACKLOG 5
+/*
+
+** Fichero: servidor.c
+** Autores:
+ Alba Cruz García***REMOVED***
+*/
 extern int errno;
 int semaforos;
 boolean acabar;
@@ -24,7 +30,9 @@ char * rutaGrupoSeleccionado = NULL;
 tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada);
 tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada);
 void logMessage(char * string);
+/* ------------------------------------------------------------------------------------- */
 int main(int argc, char * argv) {
+/* ------------------------------------------------------------------------------------- */
   // socketListen = ls_tcp, socketTCP = s_tcp en las practicas.
   struct linger linger;
   linger.l_onoff = 1;
@@ -53,8 +61,13 @@ int main(int argc, char * argv) {
   sigemptyset(&sigCld.sa_mask);
   sigaction(SIGCLD, &sigCld, NULL);
   // Declaramos los semaforos
+  semaforos = semget(IPC_PRIVATE, NUM_SEMAFOROS, IPC_CREAT | 0666);
   unionSemaforo.val = 1;
   if (semctl(semaforos, SEMAFORO_LOG, SETVAL, unionSemaforo) == -1) {
+    fprintf(stderr, "SEMAFORO_LOG: Declaración");
+  }
+  unionSemaforo.val = 1;
+  if (semctl(semaforos, SEMAFORO_GRUPOS, SETVAL, unionSemaforo) == -1) {
     fprintf(stderr, "SEMAFORO_LOG: Declaración");
   }
   // Creamos los sockets
@@ -116,7 +129,8 @@ int main(int argc, char * argv) {
           exit(EXIT_ERR_GENERICO);
         }
         getnameinfo((struct sockaddr *)&cliente, tamSocket, host, tamSocket, NULL, 0, 0);
-        printf("Conectado a %s por TCP (puerto %d).\n", host, htons(cliente.sin_port));
+        sprintf(mensajeLog, "Conectado a %s (IP: %s) por TCP (puerto %d)\n", host, inet_ntoa(servidor.sin_addr), htons(servidor.sin_port));
+        logMessage(mensajeLog);
         while (acabar != TRUE) {
           tamMensaje = recv(socketTCP, mensajeRecibido, sizeof(tipoMensaje), 0);
           if (tamMensaje <= 0) {
@@ -159,7 +173,7 @@ int main(int argc, char * argv) {
       if (FD_ISSET(socketUDP, &socketSet)) {
         getnameinfo((struct sockaddr *)&servidor, tamSocket, host, tamSocket, NULL, 0, 0);
         printf("Conectado a %s por UDP (puerto %d).\n", host, htons(servidor.sin_port));
-        sprintf(mensajeLog, "Conectado a %s (IP: %s) por UDP (puerto %d)", host, inet_ntoa(servidor.sin_addr), htons(servidor.sin_port));
+        sprintf(mensajeLog, "Conectado a %s (IP: %s) por UDP (puerto %d)\n", host, inet_ntoa(servidor.sin_addr), htons(servidor.sin_port));
         logMessage(mensajeLog);
         while (acabar != TRUE) {
           tamMensaje = recvfrom(socketUDP, mensajeRecibido, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, &tamSocket);
@@ -212,6 +226,7 @@ int main(int argc, char * argv) {
 
 /* ------------------------------------------------------------------------------------- */
 tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
+/* ------------------------------------------------------------------------------------- */
   //TODO: Implementar trimming en TODOS los comandos. Algunos crashean poniendo espacios como ultimo carácter...
   //TOOD: Funcion que haga strtok_r varias veces
   //TODO: Implementar ERRNO personalizado para las cosas que no tienen codigo correspondiente (archivo no encontrado, etc)
@@ -229,7 +244,7 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
   int primerArticulo, ultimoArticulo;
   size_t tamArchivo;
   memcpy(bufferMensaje, mensajeEntrada->datos, TAM_BUFFER);
-  sprintf(mensajeLog, "COMANDO RECIBIDO: %s", bufferMensaje);
+  sprintf(mensajeLog, "COMANDO RECIBIDO: %s\n", bufferMensaje);
   logMessage(mensajeLog);
   comando = strtok_r(bufferMensaje, " ", &saveptr);
   if (comando == NULL || strlen(comando) == 0) comando = bufferMensaje; // Comandos sin argumentos
@@ -506,7 +521,7 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
     //
     // TODO: POST
     codMensaje = CODIGO_POST_INICIO;
-    sprintf(bufferRespuesta, "Subiendo un artículo; finalize con una línea que solo contenga un punto");
+    sprintf(bufferRespuesta, "Subiendo un artículo; finalice con una línea que solo contenga un punto");
     //
     // FIN DE POST
     //
@@ -530,8 +545,9 @@ tipoMensaje * procesarComando(tipoMensaje * mensajeEntrada) {
   msg = constructorCodYString(codMensaje, bufferRespuesta, strlen(bufferRespuesta), IMPRIMIR_MENSAJES);
   return msg;
 }
-
+/* ------------------------------------------------------------------------------------- */
 void logMessage(char * string) {
+/* ------------------------------------------------------------------------------------- */
   FILE * archivoLog;
   time_t t = time(NULL);
   struct tm * fechaHora = localtime(&t);
@@ -543,13 +559,14 @@ void logMessage(char * string) {
   fclose(archivoLog);
   operarSobreSemaforo(semaforos, SEMAFORO_LOG, SIGNAL, 1, 0);
 }
-
+/* ------------------------------------------------------------------------------------- */
 tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada) {
+/* ------------------------------------------------------------------------------------- */
   tipoMensaje * msg;
   int i, j, numUltimoArticulo, codRespuesta;
-  char bufferRespuesta[512], copiaLinea[512] = {0}, copiaMensaje[512], * linea, * saveptr, * saveptr2;
-  char rutaArchivo[96], subject[96], contenido[512] = {0}, textoGrupo[48], fechaFormatoNNTP[96], fechaLegible[96], hostname[96];
-  FILE * archivoArticulo, * archivoGrupo;
+  char bufferRespuesta[512], copiaLinea[512] = {0}, copiaMensaje[512], mensajeLog[550], * linea, * saveptr, * saveptr2;
+  char rutaArchivo[96], subject[96] = {0}, contenido[512] = {0}, textoGrupo[48], fechaFormatoNNTP[96], fechaLegible[96], hostname[96], nuevaLinea[96], restoFichero[512];
+  FILE * archivoArticulo, * archivoGrupo, * archivoGrupoNuevo;
   time_t t = time(NULL);
   struct tm fechaHora = *localtime(&t);
   strftime(fechaFormatoNNTP, 96, "%C%m%d %H%M%S", &fechaHora);
@@ -557,6 +574,8 @@ tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada) {
   gethostname(hostname, 96);
   strcpy(copiaMensaje, mensajeEntrada->datos);
   sprintf(rutaArchivo, "%s/", RUTA_ARTICULOS);
+  sprintf(mensajeLog, "Datos recibidos en post: %s\n", copiaMensaje);
+  logMessage(mensajeLog);
   for (i = 0, linea = strtok_r(copiaMensaje, "\n", &saveptr); linea != NULL; linea = strtok_r(NULL, "\n", &saveptr), i++) {
     sprintf(copiaLinea, "%s", linea); //Copiamos para hacer más parsing de una sola linea.
     if (i == 0) { // Línea del grupo.
@@ -568,14 +587,17 @@ tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada) {
       }
     } else if (i == 1) {
       sprintf(subject, "%s", copiaLinea);
+      printf("Subject: %s", subject);
     } else {
       sprintf(contenido+strlen(contenido), "%s\n", copiaLinea);
+      fflush(stdout);
+      printf("Content: %s", contenido);
     }
     if (!(strcmp(trim(linea), "."))) break;
   }
-  fflush(stdout);
   //A partir de aqui usamos la variable "Linea" para guardar los tokens.
-  if ((archivoGrupo = fopen(RUTA_ARCHIVO_GRUPOS, "r+")) == NULL) {
+  operarSobreSemaforo(semaforos, SEMAFORO_GRUPOS, WAIT, 1, 0);
+  if ((archivoGrupo = fopen(RUTA_ARCHIVO_GRUPOS, "r+")) == NULL || (archivoGrupoNuevo = fopen(RUTA_ARCHIVO_GRUPOS_TEMP, "wa+")) == NULL) {
     codRespuesta = CODIGO_ERROR_GENERICO;
     sprintf(bufferRespuesta, "No se pudo abrir el archivo de grupos.");
   } else {
@@ -599,11 +621,34 @@ tipoMensaje * procesarPost(tipoMensaje * mensajeEntrada) {
         fprintf(archivoArticulo, "Newsgroup: %s\nSubject: %s\nDate: %s %s\nMessage-ID: <%d@%s>\n\n%s", textoGrupo, subject, fechaFormatoNNTP, fechaLegible, numUltimoArticulo+1, hostname, contenido);
         codRespuesta = CODIGO_POST_CORRECTO;
         sprintf(bufferRespuesta, "Post subido correctamente");
+        //El post ha sido creado; solo nos falta actualizar el archivo de grupos (el número del último artículo, para ser exactos).
+        // Este código debería de actualizar grupos creando un grupos.temp y sobreescribiendo grupos, pero no he conseguido que funcione.
+        // rewind(archivoGrupo);
+        // while (!feof(archivoGrupo)) {
+        //   fgets(copiaLinea, sizeof(copiaLinea), archivoGrupo);
+        //   if (!(strcmp(trim(linea), textoGrupo))) { //La línea de texto es la correspondiente al grupo a actualizar.
+        //     fprintf(archivoGrupoNuevo, "%s %010d", textoGrupo, numUltimoArticulo+1);
+        //     for ((i = 0, linea = strtok_r(copiaLinea, " ", &saveptr2)); linea != NULL; i++, linea = strtok_r(NULL, " ", &saveptr2)) {
+        //       if (i != 0) { //Nos saltamos el primer token, que es el del último artículo que acabamos de actualizar.
+        //         fprintf(archivoGrupoNuevo, " %s", linea);
+        //       }
+        //     }
+        //     fprintf(archivoGrupoNuevo, "\n");
+        //   } else { //La línea de texto NO es del grupo que queremos actualizar. Simplemente volvemos a meterle todos los tokens.
+        //     fprintf(archivoGrupoNuevo, "%s ", linea);
+        //     for ((i = 0, linea = strtok_r(copiaLinea, " ", &saveptr2)); linea != NULL; i++, linea = strtok_r(NULL, " ", &saveptr2)) {
+        //       fprintf(archivoGrupoNuevo, " %s", linea);
+        //     }
+        //   fprintf(archivoGrupoNuevo, "\n");
+        //   }
+        // }
       }
     }
   }
-  fclose(archivoGrupo);
   fclose(archivoArticulo);
-  msg = constructorCodYString(codRespuesta, bufferRespuesta, strlen(bufferRespuesta), FALSE);
+  fclose(archivoGrupoNuevo);
+  fclose(archivoGrupo);
+  operarSobreSemaforo(semaforos, SEMAFORO_GRUPOS, SIGNAL, 1, 0);
+  msg = constructorCodYString(codRespuesta, bufferRespuesta, strlen(bufferRespuesta), IMPRIMIR_MENSAJES);
   return msg;
 }

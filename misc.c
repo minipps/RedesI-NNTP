@@ -2,6 +2,12 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/sem.h>
+/*
+
+** Fichero: misc.c
+** Autores:
+ Alba Cruz García***REMOVED***
+*/
 void strToUpper(char * str) {
   int i = 0;
   if (str != NULL) {
@@ -14,15 +20,6 @@ void strToUpper(char * str) {
   }
 }
 
-tipoMensaje * constructorCodRespuesta(int codigo) {
-  tipoMensaje * msg = malloc(sizeof(tipoMensaje));
-  //TODO: Error handling
-  msg->codRespuesta = (uint16_t)codigo;
-  msg->datos[0] = '\r';
-  msg->datos[1] = '\n';
-  msg->datos[2] = '\0';
-  return msg;
-}
 
 tipoMensaje * constructorCodYString(int codigo, char * msg, int msgSize, boolean print) {
   tipoMensaje * tmp = malloc(sizeof(tipoMensaje));
@@ -32,17 +29,6 @@ tipoMensaje * constructorCodYString(int codigo, char * msg, int msgSize, boolean
   tmp->codRespuesta = codigo;
   strcpy(tmp->datos, msg);
   if (print) imprimirMensaje(tmp);
-  //TODO: Actualmente usamos \0 por comodidad, cambiar antes de enviar
-  // if (msgSize > 509) {
-  //   tmp->datos[msgSize-3] = '\r';
-  //   tmp->datos[msgSize-2] = '\n';
-  //   tmp->datos[msgSize-1] = '\0';
-  // } else {
-  //   //TODO: quizas sea +1 +2
-  //   tmp->datos[msgSize] = '\r';
-  //   tmp->datos[msgSize+1] = '\n';
-  //   tmp->datos[msgSize+2] = '\0';
-  // }
   return tmp;
 }
 

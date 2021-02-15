@@ -15,15 +15,24 @@
 #include <netdb.h>
 //Importes de utilidades, comment until makefile is done
 #include "misc.h"
+/*
+
+** Fichero: cliente.c
+** Autores:
+ Alba Cruz García***REMOVED***
+*/
 void clienteUDP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrdenes);
 void clienteTCP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrdenes);
+tipoMensaje * procesarPostArchivo(FILE * archivoALeer);
 void udpSigAlarmHandler(int signal);
 ssize_t recvMensajeEntero(int fd_socket, void * buf, size_t bufsize);
 // Variables globales
 int reintentos = 0;
 boolean timeout;
 // Codigo
+/* ------------------------------------------------------------------------------------- */
 int main(int argc, char *argv[]) {
+/* ------------------------------------------------------------------------------------- */
   int i;
   protocolo modoProtocolo;
   ordenes modoOrdenes;
@@ -72,8 +81,9 @@ int main(int argc, char *argv[]) {
   }
   return 0;
 }
-
+/* ------------------------------------------------------------------------------------- */
 void clienteUDP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrdenes) {
+/* ------------------------------------------------------------------------------------- */
   //TODO: Comentar esto
   //TODO: Comprobar que la alarma funciona bien y no hace timeouts de más
   int contadorPost = 0;
@@ -121,7 +131,7 @@ void clienteUDP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrd
       //Si sendto() falla por la alarma, volverá a empezar por el flag SA_RESTART
       alarm(TIEMPO_TIMEOUT);
       sendto(socketUDP, mensajeEnviado, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, tamSocket);
-      // Limpiamos la alarma para evitar que llegue justo cuando empecemos el recvfrom
+      // Limpiamos la alarma para evitar que llegue justo cuando empecemos el recvfrom, y creamos una nueva.
       alarm(0);
       alarm(TIEMPO_TIMEOUT);
       tamMensaje = recvfrom(socketUDP, mensajeRecibido, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, &tamSocket);
@@ -165,6 +175,8 @@ void clienteUDP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrd
     if (archivoALeer == NULL) exit(EXIT_ERR_FICHORDENES);
     while (!acabar && !feof(archivoALeer) && reintentos < MAX_REINTENTOS) {
       fgets(buffer, TAM_BUFFER, archivoALeer);
+      trim(buffer);
+      if (buffer == NULL || isblank(buffer[0]) || isspace(buffer[0]) || buffer[0] == '\0') continue; //Línea vacia.
       mensajeEnviado = constructorCodYString(SIN_CODIGO, buffer, strlen(buffer), FALSE);
       //Si sendto() falla por la alarma, volverá a empezar por el flag SA_RESTART
       alarm(TIEMPO_TIMEOUT);
@@ -182,7 +194,14 @@ void clienteUDP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrd
           acabar = TRUE;
           break;
         case CODIGO_POST_INICIO:
-          contadorPost = 0;
+          mensajeEnviado = procesarPostArchivo(archivoALeer);
+          alarm(TIEMPO_TIMEOUT);
+          sendto(socketUDP, mensajeEnviado, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, tamSocket);
+          // Limpiamos la alarma para evitar que llegue justo cuando empecemos el recvfrom
+          alarm(0);
+          alarm(TIEMPO_TIMEOUT);
+          tamMensaje = recvfrom(socketUDP, mensajeRecibido, sizeof(tipoMensaje), 0, (struct sockaddr *)&servidor, &tamSocket);
+          alarm(0);
           break;
         default:
           break;
@@ -191,8 +210,9 @@ void clienteUDP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrd
     pause();
   }
 }
-
+/* ------------------------------------------------------------------------------------- */
 void clienteTCP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrdenes) {
+/* ------------------------------------------------------------------------------------- */
   struct sockaddr_in servidor;
   int contadorPost = 0;
   int fd_socket;
@@ -223,7 +243,6 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrd
       fgets(buffer, TAM_BUFFER, stdin);
       mensajeEnviado = constructorCodYString(SIN_CODIGO, buffer, strlen(buffer), FALSE);
       send(fd_socket, mensajeEnviado, sizeof(tipoMensaje), 0);
-      //recvMensajeEntero(fd_socket, mensajeRecibido, sizeof(tipoMensaje));
       recv(fd_socket, mensajeRecibido, sizeof(tipoMensaje), 0);
       imprimirMensaje(mensajeRecibido);
       switch(mensajeRecibido->codRespuesta) {
@@ -245,26 +264,32 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrd
           send(fd_socket, mensajeEnviado, sizeof(tipoMensaje), 0);
           recv(fd_socket, mensajeRecibido, sizeof(tipoMensaje), 0);
           imprimirMensaje(mensajeRecibido);
+          break;
         default:
           break;
       }
     }
-    // while(true) {
-    //   break;
-    // }
   } else {
     if (nombreFichOrdenes == NULL) exit(EXIT_ERR_FICHORDENES);
     archivoALeer = fopen(nombreFichOrdenes, "r");
     fclose(stdin);
     while (!feof(archivoALeer) && acabar != TRUE) {
       fgets(buffer, TAM_BUFFER, archivoALeer);
+      trim(buffer);
+      if (buffer == NULL || isblank(buffer[0]) || isspace(buffer[0]) || buffer[0] == '\0') continue; //Línea vacia.
       mensajeEnviado = constructorCodYString(SIN_CODIGO, buffer, strlen(buffer), FALSE);
       send(fd_socket, mensajeEnviado, sizeof(tipoMensaje), 0);
       recv(fd_socket, mensajeRecibido, sizeof(tipoMensaje), MSG_WAITALL);
       imprimirMensaje(mensajeRecibido);
       switch(mensajeRecibido->codRespuesta) {
-        case 205:
+        case CODIGO_DESPEDIDA:
           acabar = TRUE;
+          break;
+        case CODIGO_POST_INICIO:
+          mensajeEnviado = procesarPostArchivo(archivoALeer);
+          send(fd_socket, mensajeEnviado, sizeof(tipoMensaje), 0);
+          recv(fd_socket, mensajeRecibido, sizeof(tipoMensaje), 0);
+          imprimirMensaje(mensajeRecibido);
           break;
         default:
           break;
@@ -276,8 +301,9 @@ void clienteTCP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrd
   exit(EXIT_CORRECTO);
 }
 
-
+/* ------------------------------------------------------------------------------------- */
 void udpSigAlarmHandler(int signal) {
+/* ------------------------------------------------------------------------------------- */
   if (reintentos < MAX_REINTENTOS) {
     reintentos++;
   } else {
@@ -285,4 +311,45 @@ void udpSigAlarmHandler(int signal) {
     timeout = TRUE;
     exit(EXIT_TIMEOUT);
   }
+}
+
+tipoMensaje * procesarPostArchivo(FILE * archivoALeer) {
+  char linea[128] = {0}, newsgroup[96], subject[96], contenido[512], bufferMensaje[512], * saveptr1, * saveptr2, * saveptr3, * token;
+  int contador = 0;
+  tipoMensaje * msg;
+  int errorFich = 0;
+  while (strcmp(trim(linea), ".") && !feof(archivoALeer)) {
+    fgets(linea, 128, archivoALeer);
+    printf("Linea: %s", linea);
+    if (contador == 0) { //Primera linea: newsgroup
+      token = strtok_r(linea, ":", &saveptr1); //Primer token, NEWSGROUP: lo ignoramos.
+      token = strtok_r(NULL, "", &saveptr1); //Segundo token, el grupo, lo cogemos.
+      if (token == NULL) {
+        errorFich = 1;
+        break;
+      }
+      sprintf(newsgroup, "%s", trim(token));
+    } else if (contador == 1) { //Segunda linea: Subject
+      token = strtok_r(linea, ":", &saveptr1); //Primer token, NEWSGROUP: lo ignoramos
+      printf("Token: %s", token);
+      token = strtok_r(NULL, "", &saveptr1); //Segundo token, el grupo, lo cogemos.
+      if (token == NULL) {
+        errorFich = 1;
+        break;
+      }
+      sprintf(subject, "%s", trim(token));
+    } else { // Resto de lineas, contenido del post.
+      sprintf(contenido+strlen(contenido), "%s\n", linea);
+    }
+    contador++;
+  }
+  printf("FIN DE BUCLE");
+  if (errorFich) {
+    sprintf(bufferMensaje, "ERROR EN EL PARSING DEL MENSAJE");
+    msg = constructorCodYString(SIN_CODIGO, bufferMensaje, TAM_BUFFER, FALSE);
+  } else {
+    sprintf(bufferMensaje, "%s\n%s\n%s", newsgroup, subject, contenido);
+    msg = constructorCodYString(SIN_CODIGO, bufferMensaje, TAM_BUFFER, FALSE);
+  }
+  return msg;
 }

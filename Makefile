@@ -1,4 +1,3 @@
-#TODO: run y clean son especificos de windows
 all: cliente servidor run
 
 default: all
@@ -19,4 +18,4 @@ misc.o: misc.h
 
 .PHONY: clean
 clean:
-	rm *.o cliente.exe servidor.exe
+	rm *.o cliente servidor

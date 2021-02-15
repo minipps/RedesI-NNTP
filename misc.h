@@ -1,3 +1,9 @@
+/*
+
+** Fichero: misc.h
+** Autores:
+ Alba Cruz García***REMOVED***
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +16,9 @@
 #define MAX_REINTENTOS 2
 #define TIEMPO_TIMEOUT 4
 // Constantes: Semaforos y sus operaciones.
+#define NUM_SEMAFOROS 2
 #define SEMAFORO_LOG 0
+#define SEMAFORO_GRUPOS 1
 #define WAIT -1
 #define WAITALL 0
 #define SIGNAL 1
@@ -44,6 +52,7 @@
 #define RUTA_BASE "nntp/noticias"
 #define RUTA_ARTICULOS "nntp/noticias/articulos"
 #define RUTA_ARCHIVO_GRUPOS "nntp/noticias/grupos"
+#define RUTA_ARCHIVO_GRUPOS_TEMP "nntp/noticias/grupos.temp"
 #define RUTA_ARCHIVO_NARTICULOS "nntp/noticias/n_articulos"
 // Enums
 typedef enum {
@@ -55,7 +64,7 @@ typedef enum {
 typedef enum {
   MODO_CONSOLA, MODO_FICHERO
 } ordenes;
-//TODO: el pack es para mandar estructuras pero no sé si funciona
+//El pack es una directiva que evita espacios en la memoria de la estructura, recomendada para envíar estructuras por sockets, pero realmente el programa funciona sin ella.
 #pragma pack(1)
 typedef struct {
   //Usamos enteros de tamaño fijo para evitar problemas entre maquinas de distintas arquitecturas.
@@ -66,7 +75,6 @@ typedef struct {
 // Funciones
 void strToUpper(char * str);
 char * trim(char * str);
-tipoMensaje * constructorCodRespuesta(int codigo);
 tipoMensaje * constructorCodYString(int codigo, char * msg, int msgSize, boolean print);
 void imprimirMensaje(tipoMensaje * msg);
 int operarSobreSemaforo(int semaforo,int indice,short op,short nsops,short flg);
