@@ -1,6 +1,6 @@
 # RedesI-NNTP
 Trabajo de la asignatura Redes I de la carrera de Ingeniería Informática de la USAL.
-Consistía en implementar una versión reducida del [protocolo NNTP](https://en.wikipedia.org/wiki/Network_News_Transfer_Protocol).
+Consistía en implementar una versión reducida del [protocolo NNTP](https://en.wikipedia.org/wiki/Network_News_Transfer_Protocol) sobre Sockets de C, tanto en TCP como en UDP.
 Los comandos disponibles son: 
 - LIST
 - NEWGROUPS
