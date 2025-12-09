@@ -6,7 +6,7 @@
 
 ** Fichero: misc.c
 ** Autores:
- Alba Cruz García***REMOVED***
+ Alba Cruz García
 */
 void strToUpper(char * str) {
   int i = 0;

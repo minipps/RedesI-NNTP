@@ -20,7 +20,7 @@
 
 ** Fichero: servidor.c
 ** Autores:
- Alba Cruz García***REMOVED***
+ Alba Cruz García
 */
 extern int errno;
 int semaforos;

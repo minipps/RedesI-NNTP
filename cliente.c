@@ -19,7 +19,7 @@
 
 ** Fichero: cliente.c
 ** Autores:
- Alba Cruz García***REMOVED***
+ Alba Cruz García
 */
 void clienteUDP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrdenes);
 void clienteTCP(ordenes modoOrdenes, char * nombreServidor, char * nombreFichOrdenes);

@@ -2,7 +2,7 @@
 
 ** Fichero: misc.h
 ** Autores:
- Alba Cruz García***REMOVED***
+ Alba Cruz García
 */
 #include <stdio.h>
 #include <stdlib.h>
